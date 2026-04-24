@@ -17,9 +17,11 @@ import {
 } from "lucide-react";
 import { useNode, useNodeTrafficTrend } from "@/hooks/useNode";
 import { usePingMini, usePingMiniBuckets } from "@/hooks/usePingMini";
+import { usePreferences } from "@/hooks/usePreferences";
 import {
   formatBytes,
   formatExpireDays,
+  formatOfflineDuration,
   formatTrafficRate,
   formatUptimeDays,
   parseTags,
@@ -33,6 +35,7 @@ import { Flag } from "@/components/ui/Flag";
 import { MetricBar } from "./MetricBar";
 import { MiniBars } from "./MiniBars";
 import { QualityBars } from "./QualityBars";
+import { CanvasStrip, resolveCssColor } from "./CanvasStrip";
 import { clsx } from "clsx";
 import type { PingOverviewBucket, TrafficTrendSample } from "@/types/komari";
 import type { TrafficRateDisplay } from "@/utils/format";
@@ -80,6 +83,7 @@ export const NodeCard = memo(function NodeCard({
 }: {
   uuid: string;
 }) {
+  const { resolvedAppearance } = usePreferences();
   const node = useNode(uuid);
   const trafficTrend = useNodeTrafficTrend(uuid);
   const ping = usePingMini(uuid);
@@ -126,14 +130,26 @@ export const NodeCard = memo(function NodeCard({
   const downRate = formatTrafficRate(node.netDown);
   const lossHoverColor = hoveredLossBucket ? lossHeatColor(hoveredLossBucket.loss) : null;
   const hasHomepagePingBinding = ping.isAssigned;
+  const isOnline = node.online === true;
+  const isOffline = node.online === false;
+  const offlineFor = isOffline ? formatOfflineDuration(node.updatedAt) : null;
 
   return (
-    <article className={clsx("server-card", !node.online && "is-offline")}>
-      {!node.online && (
+    <article
+      className={clsx("server-card", isOffline && "is-offline")}
+      data-appearance={resolvedAppearance}
+    >
+      {isOffline && (
         <div className="offline-mask">
-          <span className="offline-badge">
+          <span className="offline-badge" title={offlineFor?.full}>
             <Power size={14} strokeWidth={2.2} />
-            <span>离线</span>
+            <span className="offline-badge-copy">
+              <span>离线</span>
+              <span className="offline-badge-time">
+                {offlineFor?.value}
+                {offlineFor?.unit ? ` ${offlineFor.unit}` : ""}
+              </span>
+            </span>
           </span>
         </div>
       )}
@@ -151,12 +167,23 @@ export const NodeCard = memo(function NodeCard({
                 {node.name}
               </Link>
               <span
-                className={clsx("server-card-online-dot", !node.online && "is-offline")}
+                className={clsx("server-card-online-dot", isOffline && "is-offline")}
                 style={{
-                  background: node.online ? "var(--status-online)" : "var(--status-offline)",
-                  boxShadow: `0 0 0 3px color-mix(in srgb, ${node.online ? "var(--status-online)" : "var(--status-offline)"} 20%, transparent)`,
+                  background:
+                    node.online == null
+                      ? "var(--text-tertiary)"
+                      : isOnline
+                        ? "var(--status-online)"
+                        : "var(--status-offline)",
+                  boxShadow: `0 0 0 3px color-mix(in srgb, ${
+                    node.online == null
+                      ? "var(--text-tertiary)"
+                      : isOnline
+                        ? "var(--status-online)"
+                        : "var(--status-offline)"
+                  } 20%, transparent)`,
                 }}
-                title={node.online ? "在线" : "离线"}
+                title={node.online == null ? "状态同步中" : isOnline ? "在线" : "离线"}
               />
             </div>
             {subtitle && (
@@ -183,7 +210,8 @@ export const NodeCard = memo(function NodeCard({
               unit="%"
               detailText={`${node.cpu_cores || 0} 核`}
               fraction={node.cpuPct / 100}
-              fill="linear-gradient(90deg, color-mix(in srgb, var(--progress-cpu) 82%, white 8%) 0%, var(--progress-cpu) 100%)"
+              redrawKey={resolvedAppearance}
+              paint={{ kind: "solid", color: "var(--progress-cpu)" }}
             />
             <MetricBar
               icon={<MemoryStick size={13} strokeWidth={2} />}
@@ -192,7 +220,8 @@ export const NodeCard = memo(function NodeCard({
               unit="%"
               detailText={`${formatBytes(node.ramUsed)} / ${formatBytes(node.ramTotal)}`}
               fraction={node.ramPct / 100}
-              fill="linear-gradient(90deg, color-mix(in srgb, var(--progress-memory) 84%, white 6%) 0%, var(--progress-memory) 100%)"
+              redrawKey={resolvedAppearance}
+              paint={{ kind: "solid", color: "var(--progress-memory)" }}
             />
             <MetricBar
               icon={<HardDrive size={13} strokeWidth={2} />}
@@ -201,14 +230,20 @@ export const NodeCard = memo(function NodeCard({
               unit="%"
               detailText={`${formatBytes(node.diskUsed)} / ${formatBytes(node.diskTotal)}`}
               fraction={node.diskPct / 100}
-              fill="linear-gradient(90deg, color-mix(in srgb, var(--progress-disk) 88%, white 2%) 0%, var(--progress-disk) 100%)"
+              redrawKey={resolvedAppearance}
+              paint={{ kind: "solid", color: "var(--progress-disk)" }}
             />
             <MetricBar
               icon={<Gauge size={13} strokeWidth={2} />}
               label="负载"
               valueText={node.load1.toFixed(2)}
               fraction={loadFraction}
-              fill="linear-gradient(90deg, var(--progress-cpu) 0%, var(--progress-memory) 100%)"
+              redrawKey={resolvedAppearance}
+              paint={{
+                kind: "gradient",
+                from: "var(--progress-cpu)",
+                to: "var(--progress-memory)",
+              }}
             />
           </div>
 
@@ -219,7 +254,8 @@ export const NodeCard = memo(function NodeCard({
               rate={upRate}
               total={formatBytes(node.trafficUp)}
               samples={trafficTrend.up}
-              live={node.online}
+              live={isOnline}
+              redrawKey={resolvedAppearance}
               color="var(--progress-cpu)"
               icon={<ArrowUp size={15} strokeWidth={2.4} />}
             />
@@ -229,7 +265,8 @@ export const NodeCard = memo(function NodeCard({
               rate={downRate}
               total={formatBytes(node.trafficDown)}
               samples={trafficTrend.down}
-              live={node.online}
+              live={isOnline}
+              redrawKey={resolvedAppearance}
               color="var(--status-success)"
               icon={<ArrowDown size={15} strokeWidth={2.4} />}
             />
@@ -265,6 +302,7 @@ export const NodeCard = memo(function NodeCard({
                     max={ping.max}
                     lastValue={ping.lastValue ?? undefined}
                     buckets={pingBuckets}
+                    redrawKey={resolvedAppearance}
                     onHoverIndex={setHoveredLatencyIndex}
                   />
                 ) : (
@@ -309,6 +347,7 @@ export const NodeCard = memo(function NodeCard({
                   <QualityBars
                     value={ping.loss}
                     buckets={pingBuckets}
+                    redrawKey={resolvedAppearance}
                     onHoverIndex={setHoveredLossIndex}
                   />
                 ) : (
@@ -380,6 +419,7 @@ function TrafficStat({
   total,
   samples,
   live,
+  redrawKey,
   color,
   icon,
 }: {
@@ -389,6 +429,7 @@ function TrafficStat({
   total: string;
   samples: TrafficTrendSample[];
   live: boolean;
+  redrawKey: string;
   color: string;
   icon: ReactNode;
 }) {
@@ -405,13 +446,12 @@ function TrafficStat({
         </span>
       </div>
       <div className="traffic-stat-trend" aria-hidden>
-        <TrafficDotStrip samples={samples} color={color} />
+        <TrafficDotStrip samples={samples} color={color} redrawKey={redrawKey} />
         <span className="traffic-stat-live" data-live={live ? "true" : "false"}>
           <span
             className="traffic-stat-live-dot"
             style={{
               background: color,
-              boxShadow: `0 0 0 4px color-mix(in srgb, ${color} 22%, transparent)`,
             }}
           />
           <span>{live ? (rate.bitsPerSec > 0 ? "实时" : "空闲") : "离线"}</span>
@@ -431,37 +471,43 @@ function TrafficStat({
 function TrafficDotStrip({
   samples,
   color,
+  redrawKey,
 }: {
   samples: TrafficTrendSample[];
   color: string;
+  redrawKey: string;
 }) {
   return (
-    <div
+    <CanvasStrip
       className="traffic-dot-strip"
-      style={{ gridTemplateColumns: `repeat(${samples.length}, minmax(0, 1fr))` }}
-    >
-      {samples.map((sample, index) => {
-        const hasTraffic = sample.value > 0;
-        const scale = hasTraffic ? 0.72 + sample.level * 0.82 : 0.46;
-        const tone = hasTraffic
-          ? `color-mix(in srgb, ${color} ${Math.round(68 + sample.level * 20)}%, white ${Math.round(32 - sample.level * 20)}%)`
-          : "color-mix(in srgb, var(--progress-bg) 82%, transparent)";
-        const isLatest = hasTraffic && index === samples.length - 1;
+      height={10}
+      ariaHidden
+      redrawKey={redrawKey}
+      draw={(ctx, width, height) => {
+        if (samples.length === 0) return;
+        const slotWidth = width / samples.length;
+        const inactiveColor = resolveCssColor("var(--progress-bg)");
 
-        return (
-          <span
-            key={`${index}-${sample.value}-${sample.level}`}
-            className="traffic-dot"
-            style={{
-              background: tone,
-              opacity: hasTraffic ? Math.min(1, sample.opacity + 0.05) : 0.46,
-              transform: `scale(${scale})`,
-              boxShadow: isLatest ? `0 0 12px -2px ${color}` : "none",
-            }}
-          />
-        );
-      })}
-    </div>
+        samples.forEach((sample, index) => {
+          const hasTraffic = sample.value > 0;
+          const scale = hasTraffic ? 0.72 + sample.level * 0.82 : 0.46;
+          const radius = 2 * scale;
+          const tone = hasTraffic
+            ? `color-mix(in srgb, ${color} ${Math.round(68 + sample.level * 20)}%, white ${Math.round(32 - sample.level * 20)}%)`
+            : inactiveColor;
+          const x = index * slotWidth + slotWidth / 2;
+          const y = height / 2;
+
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          ctx.fillStyle = tone;
+          ctx.globalAlpha = hasTraffic ? Math.min(1, sample.opacity + 0.05) : 0.46;
+          ctx.fill();
+        });
+
+        ctx.globalAlpha = 1;
+      }}
+    />
   );
 }
 

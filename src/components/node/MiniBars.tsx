@@ -1,3 +1,4 @@
+import { CanvasStrip, fillRoundedRect, resolveCssColor } from "./CanvasStrip";
 import { latencyHeatColor } from "@/utils/metricTone";
 import type { PingOverviewBucket } from "@/types/komari";
 
@@ -11,6 +12,7 @@ interface MiniBarsProps {
   /** How many bars to render (pads older buckets with empty). */
   count?: number;
   buckets?: PingOverviewBucket[];
+  redrawKey?: string;
   onHoverIndex?: (index: number | null) => void;
 }
 
@@ -21,6 +23,7 @@ export function MiniBars({
   lastValue,
   count = 24,
   buckets,
+  redrawKey,
   onHoverIndex,
 }: MiniBarsProps) {
   const bars: Array<{ value: number; bucket: PingOverviewBucket | null; hasSamples: boolean; tone: string }> =
@@ -96,31 +99,37 @@ export function MiniBars({
         })();
 
   return (
-    <div
+    <CanvasStrip
       className="mini-bar-row"
-      style={{ gap: bars.length > 48 ? 1 : 2 }}
-      onMouseLeave={() => onHoverIndex?.(null)}
-    >
-      {bars.map(({ value, bucket, hasSamples, tone }, i) => {
-        const v = value;
-        const has = v > 0;
-        const h = has ? Math.max(0.2, Math.min(1, v / max)) : 0.25;
-        return (
-          <span
-            key={i}
-            onMouseEnter={() => onHoverIndex?.(bucket?.index ?? (hasSamples ? i : null))}
-            style={{
-              flex: "1 1 0",
-              minWidth: 0,
-              height: `${Math.round(h * 100)}%`,
-              background: has ? tone : "var(--progress-bg)",
-              opacity: has ? 0.92 : 0.55,
-              borderRadius: 2,
-              alignSelf: "flex-end",
-            }}
-          />
-        );
-      })}
-    </div>
+      height={16}
+      ariaHidden
+      redrawKey={redrawKey}
+      getHoverIndex={(offsetX, width) => {
+        if (bars.length === 0 || width <= 0) return null;
+        const slotWidth = width / bars.length;
+        const index = Math.max(0, Math.min(bars.length - 1, Math.floor(offsetX / slotWidth)));
+        const bar = bars[index];
+        return bar?.bucket?.index ?? (bar?.hasSamples ? index : null);
+      }}
+      onHoverIndex={onHoverIndex}
+      draw={(ctx, width, height) => {
+        const inactiveColor = resolveCssColor("var(--progress-bg)");
+        const gap = bars.length > 48 ? 1 : 2;
+        const barWidth = Math.max(1, (width - gap * (bars.length - 1)) / Math.max(1, bars.length));
+
+        bars.forEach(({ value, tone }, index) => {
+          const has = value > 0;
+          const barHeight = height * (has ? Math.max(0.2, Math.min(1, value / max)) : 0.25);
+          const x = index * (barWidth + gap);
+          const y = height - barHeight;
+
+          ctx.globalAlpha = has ? 0.92 : 0.55;
+          ctx.fillStyle = has ? tone : inactiveColor;
+          fillRoundedRect(ctx, x, y, barWidth, barHeight, 2);
+        });
+
+        ctx.globalAlpha = 1;
+      }}
+    />
   );
 }

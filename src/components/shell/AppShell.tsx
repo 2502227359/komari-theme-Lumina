@@ -12,6 +12,9 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+      <footer className="site-footer">
+        <div className="site-footer-inner">Powered by Komari Monitor.</div>
+      </footer>
     </div>
   );
 }

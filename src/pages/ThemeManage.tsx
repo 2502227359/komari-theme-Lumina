@@ -38,7 +38,7 @@ const APPEARANCE_OPTIONS = [
 ] as const;
 
 function normalizeAppearance(value: unknown): Appearance {
-  return value === "light" || value === "dark" || value === "system" ? value : "dark";
+  return value === "light" || value === "dark" || value === "system" ? value : "system";
 }
 
 function serializeBindings(bindings: HomepagePingTaskBindings) {
@@ -123,7 +123,7 @@ function applyClientAssignment(
 
 export function ThemeManage() {
   const { data: config, isLoading: configLoading } = usePublicConfig();
-  const [draftAppearance, setDraftAppearance] = useState<Appearance>("dark");
+  const [draftAppearance, setDraftAppearance] = useState<Appearance>("system");
   const [draftBindings, setDraftBindings] = useState<HomepagePingTaskBindings>({});
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [taskSearch, setTaskSearch] = useState("");

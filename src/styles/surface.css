@@ -191,6 +191,23 @@
   backdrop-filter: blur(14px);
 }
 
+.site-footer {
+  padding: 0 12px 20px;
+}
+
+.site-footer-inner {
+  margin: 0 auto;
+  width: 100%;
+  max-width: 1720px;
+  border-top: 1px solid color-mix(in srgb, var(--hairline) 88%, transparent);
+  padding-top: 14px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
 .control-toggle {
   border-color: transparent;
   background: transparent;
@@ -965,8 +982,16 @@
 }
 
 .server-card.is-offline {
-  opacity: 0.78;
-  filter: saturate(0.65);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--status-offline) 12%, var(--surface) 88%) 0%,
+      color-mix(in srgb, var(--status-offline) 7%, var(--surface) 93%) 100%
+    );
+  border-color: color-mix(in srgb, var(--status-offline) 42%, var(--border));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--status-offline) 18%, transparent),
+    0 14px 32px -24px color-mix(in srgb, var(--status-offline) 18%, rgba(0, 0, 0, 0.82));
 }
 
 .server-card-content {
@@ -1013,6 +1038,11 @@
 }
 .server-card-title-link:hover {
   color: var(--progress-cpu);
+}
+
+.server-card.is-offline .server-card-title-link,
+.server-card.is-offline .server-card-title-link:hover {
+  color: color-mix(in srgb, var(--status-offline) 72%, var(--text-primary) 28%);
 }
 
 .server-card-detail-link {
@@ -1110,12 +1140,14 @@
 }
 
 .metric-track {
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
   height: 10px;
   min-width: 0;
-  contain: paint;
+}
+
+.metric-track-canvas {
+  display: block;
+  width: 100%;
+  height: 10px;
 }
 
 .metric-segment {
@@ -1187,13 +1219,11 @@
 }
 
 .traffic-dot-strip {
-  display: grid;
-  align-items: center;
-  column-gap: 1px;
+  display: block;
   flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
   height: 10px;
-  contain: paint;
 }
 
 .traffic-dot {
@@ -1224,7 +1254,6 @@
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  animation: traffic-live-pulse 1.8s ease-in-out infinite;
 }
 
 .traffic-stat-live[data-live="false"] {
@@ -1276,19 +1305,6 @@
   min-width: 0;
 }
 
-@keyframes traffic-live-pulse {
-  0%,
-  100% {
-    transform: scale(0.88);
-    opacity: 0.52;
-  }
-
-  50% {
-    transform: scale(1.18);
-    opacity: 1;
-  }
-}
-
 .server-health-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1332,12 +1348,9 @@
 }
 
 .mini-bar-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
+  display: block;
   width: 100%;
   height: 16px;
-  contain: paint;
 }
 
 .server-card-footer {
@@ -1422,14 +1435,35 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  border-radius: 8px;
+  padding: 8px 14px;
+  border-radius: 12px;
   font-size: 12px;
-  font-weight: 500;
-  color: var(--status-error);
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-error) 30%, transparent);
-  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.35);
+  font-weight: 700;
+  color: color-mix(in srgb, white 90%, var(--status-error) 10%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--status-offline) 86%, black 14%) 0%,
+      color-mix(in srgb, var(--status-offline) 72%, black 28%) 100%
+    );
+  border: 1px solid color-mix(in srgb, var(--status-offline) 72%, white 28%);
+  box-shadow:
+    0 16px 30px -16px rgba(0, 0, 0, 0.55),
+    0 0 0 1px color-mix(in srgb, var(--status-offline) 18%, transparent);
+}
+
+.offline-badge-copy {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.05;
+}
+
+.offline-badge-time {
+  color: color-mix(in srgb, white 84%, var(--status-offline) 16%);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 @media (max-width: 720px) {

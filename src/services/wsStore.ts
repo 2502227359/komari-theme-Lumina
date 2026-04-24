@@ -31,6 +31,7 @@ interface NodeTrafficTrend {
 
 const LIVE_STATUS_REFRESH_INTERVAL_MS = 2_000;
 const NODE_INFO_REFRESH_INTERVAL_MS = 30_000;
+const SCROLL_IDLE_DELAY_MS = 160;
 const TRAFFIC_TREND_SAMPLE_COUNT = 18;
 const EMPTY_TRAFFIC_TREND_SAMPLE: TrafficTrendSample = {
   value: 0,
@@ -68,7 +69,7 @@ function emptyState(): State {
   };
 }
 
-function emptyDisplay(info: NodeInfo, online: boolean): NodeDisplay {
+function emptyDisplay(info: NodeInfo, online: boolean | null): NodeDisplay {
   return {
     ...info,
     online,
@@ -102,7 +103,7 @@ function mergeNodeInfo(
   info: NodeInfo,
 ): NodeDisplay {
   if (!display) {
-    return emptyDisplay(info, false);
+    return emptyDisplay(info, null);
   }
 
   return {
@@ -205,9 +206,9 @@ function updateTrafficTrendSeries(
   prevSeries: TrafficTrendSeries,
   value: number,
   updatedAt: number,
-  online: boolean,
+  online: boolean | null,
 ) {
-  if (!online) {
+  if (online === false) {
     if (!prevSeries.signature && prevSeries.size === 0) {
       return { series: prevSeries, changed: false };
     }
@@ -276,16 +277,43 @@ let state: State = emptyState();
 const globalListeners = new Set<Listener>();
 const nodeListeners = new Map<string, Set<Listener>>();
 let visibleNodeUuidsSnapshot: string[] = [];
+let scrollIdleTimer: number | null = null;
+let scrollTrackingStarted = false;
+let scrollActive = false;
+let refreshDeferredWhileScrolling = false;
 
 function commit(next: State, touched: Iterable<string>) {
   state = next;
+  const touchedUuids = [...touched];
+
   for (const listener of globalListeners) listener();
-  for (const uuid of touched) {
+  for (const uuid of touchedUuids) {
     const listeners = nodeListeners.get(uuid);
     if (listeners) {
       for (const listener of listeners) listener();
     }
   }
+}
+
+function markScrollActivity() {
+  scrollActive = true;
+  if (scrollIdleTimer != null) {
+    window.clearTimeout(scrollIdleTimer);
+  }
+  scrollIdleTimer = window.setTimeout(() => {
+    scrollIdleTimer = null;
+    scrollActive = false;
+    if (refreshDeferredWhileScrolling) {
+      refreshDeferredWhileScrolling = false;
+      void refreshLatestStatus();
+    }
+  }, SCROLL_IDLE_DELAY_MS);
+}
+
+function ensureScrollTrackingStarted() {
+  if (scrollTrackingStarted) return;
+  scrollTrackingStarted = true;
+  window.addEventListener("scroll", markScrollActivity, { passive: true });
 }
 
 function asNumber(value: unknown, fallback = 0): number {
@@ -410,7 +438,7 @@ function applyLatestStatus(records: Record<string, unknown>) {
     const prev = state.byUuid[uuid];
     if (!prev) continue;
     const rawRecord = records[uuid];
-    const online = rawRecord != null && asRecord(rawRecord).online !== false;
+    const online = rawRecord != null ? asRecord(rawRecord).online !== false : false;
     const realtime = normalizeRealtime(rawRecord, prev);
     const merged = realtime
       ? mergeRealtime(prev, realtime, online)
@@ -518,6 +546,10 @@ async function hydrate() {
 
 async function refreshLatestStatus() {
   if (refreshInFlight || state.order.length === 0) return;
+  if (scrollActive) {
+    refreshDeferredWhileScrolling = true;
+    return;
+  }
 
   refreshInFlight = true;
   try {
@@ -564,6 +596,7 @@ export function ensureStarted() {
   if (started) return;
   started = true;
 
+  ensureScrollTrackingStarted();
   void bootstrap();
   window.setInterval(() => {
     void bootstrap();

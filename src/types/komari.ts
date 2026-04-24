@@ -150,7 +150,7 @@ export interface NodeRealtime {
 
 /** Display model — flat info + realtime metrics + online flag. */
 export interface NodeDisplay extends NodeInfo {
-  online: boolean;
+  online: boolean | null;
   cpuPct: number;
   ramUsed: number;
   ramTotal: number;

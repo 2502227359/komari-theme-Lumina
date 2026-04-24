@@ -194,11 +194,7 @@ function normalizeRpcPingOverview(
 }
 
 export async function getMe(): Promise<Me> {
-  try {
-    return (await apiGet("/api/me", MeSchema)) as Me;
-  } catch {
-    return { logged_in: false, username: "", uuid: "" };
-  }
+  return (await apiGet("/api/me", MeSchema)) as Me;
 }
 
 export async function getPublic(): Promise<PublicConfig> {

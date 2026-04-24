@@ -84,6 +84,33 @@ export function formatUptimeDays(seconds: number): { value: string; unit: string
   return { value: Math.floor(minutes).toString(), unit: "分钟" };
 }
 
+export function formatOfflineDuration(
+  updatedAt: number | undefined | null,
+): { value: string; unit: string; full: string } {
+  if (!updatedAt || !Number.isFinite(updatedAt) || updatedAt <= 0) {
+    return { value: "未知", unit: "", full: "离线时长未知" };
+  }
+
+  const diffMs = Math.max(0, Date.now() - updatedAt);
+  const minutes = Math.floor(diffMs / 60000);
+
+  if (minutes < 1) {
+    return { value: "刚刚", unit: "", full: "刚刚离线" };
+  }
+
+  if (minutes < 60) {
+    return { value: String(minutes), unit: "分钟", full: `离线 ${minutes} 分钟` };
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return { value: String(hours), unit: "小时", full: `离线 ${hours} 小时` };
+  }
+
+  const days = Math.floor(hours / 24);
+  return { value: String(days), unit: "天", full: `离线 ${days} 天` };
+}
+
 export function getExpireDaysRemaining(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const ts = Date.parse(iso);
