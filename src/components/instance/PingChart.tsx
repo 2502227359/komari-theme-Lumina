@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import UplotReact from "uplot-react";
 import type uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { Eye, EyeOff, RefreshCw } from "lucide-react";
+import { Eye, EyeOff, RefreshCw, RotateCcw } from "lucide-react";
 import { usePingRecords } from "@/hooks/useRecords";
 import { InstancePanel } from "./InstancePanel";
 import {
@@ -30,6 +30,23 @@ interface TooltipState {
   time: string;
 }
 
+interface ViewRange {
+  start: number;
+  end: number;
+}
+
+interface PingChartModel {
+  data: uPlot.AlignedData;
+  lossCeiling: number | null;
+}
+
+const MIN_VIEW_SPAN = 0.04;
+const BRUSH_HEIGHT = 58;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 function colorForTask(index: number) {
   const colors = [
     "#5d88ff",
@@ -52,6 +69,36 @@ function percentile(values: number[], ratio: number) {
   return sorted[lower] + (sorted[upper] - sorted[lower]) * weight;
 }
 
+function sliceChartData(data: uPlot.AlignedData, range: ViewRange): uPlot.AlignedData {
+  const times = data[0] as number[];
+  if (times.length < 2 || (range.start <= 0 && range.end >= 1)) return data;
+
+  const first = times[0];
+  const last = times[times.length - 1];
+  const span = last - first;
+  if (!Number.isFinite(span) || span <= 0) return data;
+
+  const startTime = first + span * range.start;
+  const endTime = first + span * range.end;
+  const indices = times
+    .map((time, index) => ({ time, index }))
+    .filter(({ time }) => time >= startTime && time <= endTime)
+    .map(({ index }) => index);
+
+  if (indices.length < 2) return data;
+  return data.map((series) => indices.map((index) => series[index])) as uPlot.AlignedData;
+}
+
+function formatPingChartValue(
+  value: number | null | undefined,
+  drawLoss: boolean,
+  lossCeiling: number | null,
+) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (drawLoss && lossCeiling != null && value >= lossCeiling * 0.999) return "丢包";
+  return `${value.toFixed(1)} ms`;
+}
+
 export function PingChart({
   uuid,
   hours,
@@ -67,6 +114,8 @@ export function PingChart({
   const [hiddenTasks, setHiddenTasks] = useState<Set<number>>(new Set());
   const [connectNulls, setConnectNulls] = useState(false);
   const [cutPeak, setCutPeak] = useState(false);
+  const [drawLoss, setDrawLoss] = useState(false);
+  const [viewRange, setViewRange] = useState<ViewRange>({ start: 0, end: 1 });
   const chartRef = useRef<uPlot.AlignedData>([[]]);
   const [tooltip, setTooltip] = useState<TooltipState>({
     show: false,
@@ -112,6 +161,7 @@ export function PingChart({
 
   useEffect(() => {
     setHiddenTasks(new Set());
+    setViewRange({ start: 0, end: 1 });
   }, [uuid]);
 
   useEffect(() => {
@@ -122,9 +172,10 @@ export function PingChart({
     });
   }, [tasks]);
 
-  const chart = useMemo(() => {
+  const fullChartModel = useMemo<PingChartModel | null>(() => {
     if (!data?.records.length || !tasks.length || visibleTasks.length === 0) return null;
     const pointMap = new Map<number, TimedMetricPoint>();
+    const lossKeys = new Set<string>();
     const sortedRecords = data.records
       .map((record) => ({
         record,
@@ -154,7 +205,15 @@ export function PingChart({
         anchors.push(anchor);
       }
       const current = pointMap.get(anchor) ?? { time: anchor };
-      current[String(record.task_id)] = record.value > 0 ? record.value : null;
+      const taskKey = String(record.task_id);
+      const lossKey = `${anchor}:${taskKey}`;
+      if (record.value > 0) {
+        current[taskKey] = record.value;
+        lossKeys.delete(lossKey);
+      } else {
+        current[taskKey] = null;
+        lossKeys.add(lossKey);
+      }
       pointMap.set(anchor, current);
     }
 
@@ -171,13 +230,37 @@ export function PingChart({
       defaultInterval: fallbackInterval,
       matchToleranceRatio: 0.25,
     });
+    const positiveValues = chartPoints
+      .flatMap((point) => taskKeys.map((taskKey) => point[taskKey]))
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+    const maxPositive = positiveValues.length ? Math.max(...positiveValues) : 0;
+    const lossCeiling = drawLoss ? Math.max(100, maxPositive * 1.18) : null;
+    if (drawLoss && lossCeiling != null) {
+      chartPoints = chartPoints.map((point) => {
+        const next = { ...point };
+        for (const taskKey of taskKeys) {
+          if (lossKeys.has(`${point.time}:${taskKey}`)) {
+            next[taskKey] = lossCeiling;
+          }
+        }
+        return next;
+      });
+    }
     const times = chartPoints.map((point) => point.time);
     const perTask = taskKeys.map((taskKey) =>
       chartPoints.map((point) => point[taskKey] ?? null),
     );
 
-    return [times, ...perTask] as uPlot.AlignedData;
-  }, [cutPeak, data, taskKeySet, taskKeys, tasks, visibleTasks.length]);
+    return {
+      data: [times, ...perTask] as uPlot.AlignedData,
+      lossCeiling,
+    };
+  }, [cutPeak, data, drawLoss, taskKeySet, taskKeys, tasks, visibleTasks.length]);
+
+  const chart = useMemo(
+    () => (fullChartModel ? sliceChartData(fullChartModel.data, viewRange) : null),
+    [fullChartModel, viewRange],
+  );
 
   useEffect(() => {
     if (chart) chartRef.current = chart;
@@ -185,23 +268,37 @@ export function PingChart({
 
   const yRange = useMemo<[number | null, number | null]>(() => {
     if (!chart) return [null, null];
+    const lossCeiling = fullChartModel?.lossCeiling ?? null;
     const values = tasks
       .flatMap((task, index) =>
         visibleTaskIds.has(task.id)
           ? ((chart[index + 1] as Array<number | null | undefined>) ?? [])
           : [],
       )
-      .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
-    if (values.length === 0) return [0, 100];
+      .filter(
+        (value): value is number =>
+          typeof value === "number" &&
+          Number.isFinite(value) &&
+          value > 0 &&
+          (!drawLoss || lossCeiling == null || value < lossCeiling * 0.999),
+      );
+    if (values.length === 0) {
+      if (drawLoss && lossCeiling != null) return [Math.max(0, lossCeiling - 100), lossCeiling];
+      return [0, 100];
+    }
     const min = Math.min(...values);
     const max = Math.max(...values);
+    if (drawLoss && lossCeiling != null) {
+      const lowerPad = Math.max(5, (max - min) * 0.12);
+      return [Math.max(0, min - lowerPad), lossCeiling];
+    }
     if (min === max) {
       const pad = Math.max(5, min * 0.1);
       return [Math.max(0, min - pad), max + pad];
     }
     const pad = Math.max(5, (max - min) * 0.12);
     return [Math.max(0, min - pad), max + pad];
-  }, [chart, tasks, visibleTaskIds]);
+  }, [chart, drawLoss, fullChartModel?.lossCeiling, tasks, visibleTaskIds]);
 
   const options = useMemo<uPlot.Options | null>(() => {
     if (!chart) return null;
@@ -230,7 +327,18 @@ export function PingChart({
           grid: { stroke: grid, width: 1 },
           ticks: { stroke: grid },
           size: 54,
-          values: (_self, splits) => splits.map((value) => (value === 0 ? "" : `${Math.round(value)} ms`)),
+          values: (_self, splits) =>
+            splits.map((value) => {
+              if (value === 0) return "";
+              if (
+                drawLoss &&
+                fullChartModel?.lossCeiling != null &&
+                value >= fullChartModel.lossCeiling * 0.98
+              ) {
+                return "丢包";
+              }
+              return `${Math.round(value)} ms`;
+            }),
         },
       ],
       series: [
@@ -272,7 +380,7 @@ export function PingChart({
               const value = currentChart[taskIndex + 1]?.[idx] as number | null | undefined;
               return {
                 label: taskLabels.get(task.id) ?? `任务 #${task.id}`,
-                value: value == null ? "—" : `${value.toFixed(1)} ms`,
+                value: formatPingChartValue(value, drawLoss, fullChartModel?.lossCeiling ?? null),
                 color: taskColors.get(task.id) ?? colorForTask(taskIndex),
               };
             });
@@ -296,7 +404,37 @@ export function PingChart({
         ],
       },
     };
-  }, [chart, connectNulls, h, hiddenTasks, isDark, taskColors, taskIndexById, taskLabels, tasks, visibleTasks, w, yRange]);
+  }, [chart, connectNulls, drawLoss, fullChartModel?.lossCeiling, h, hiddenTasks, isDark, taskColors, taskIndexById, taskLabels, tasks, visibleTasks, w, yRange]);
+
+  const overviewOptions = useMemo<uPlot.Options | null>(() => {
+    if (!fullChartModel) return null;
+    return {
+      width: w,
+      height: BRUSH_HEIGHT,
+      padding: [2, 0, 2, 0],
+      cursor: { show: false, drag: { x: false, y: false } },
+      legend: { show: false },
+      scales: {
+        x: { time: true },
+        y:
+          drawLoss && fullChartModel.lossCeiling != null
+            ? { auto: false, range: yRange }
+            : { auto: true },
+      },
+      axes: [],
+      series: [
+        { label: "time" },
+        ...tasks.map((task, index) => ({
+          label: taskLabels.get(task.id) ?? `任务 #${task.id}`,
+          stroke: taskColors.get(task.id) ?? colorForTask(index),
+          width: 1.1,
+          spanGaps: true,
+          show: !hiddenTasks.has(task.id),
+          points: { show: false },
+        })),
+      ],
+    };
+  }, [drawLoss, fullChartModel, hiddenTasks, taskColors, taskLabels, tasks, w, yRange]);
 
   const taskStats = useMemo(() => {
     const grouped = new Map<number, PingRecord[]>();
@@ -403,9 +541,33 @@ export function PingChart({
             {connectNulls ? "开启" : "关闭"}
           </span>
         </button>
+        <button
+          type="button"
+          className="instance-toggle-button instance-switch-button"
+          data-active={drawLoss ? "true" : "false"}
+          onClick={() => setDrawLoss((value) => !value)}
+          aria-pressed={drawLoss}
+        >
+          <span className="instance-switch-copy">绘制丢包</span>
+          <span className="instance-switch-track" aria-hidden>
+            <span className="instance-switch-thumb" />
+          </span>
+          <span className="instance-switch-state">
+            {drawLoss ? "开启" : "关闭"}
+          </span>
+        </button>
         <button type="button" className="instance-toggle-button" onClick={toggleAll}>
           {hiddenTasks.size === 0 ? <EyeOff size={14} /> : <Eye size={14} />}
           {hiddenTasks.size === 0 ? "隐藏全部" : "显示全部"}
+        </button>
+        <button
+          type="button"
+          className="instance-toggle-button"
+          onClick={() => setViewRange({ start: 0, end: 1 })}
+          title="恢复显示完整时间范围"
+        >
+          <RotateCcw size={14} />
+          重置范围
         </button>
         <button type="button" className="instance-toggle-button" onClick={() => void refetch()}>
           <RefreshCw size={14} />
@@ -477,6 +639,147 @@ export function PingChart({
           <div className="instance-empty">当前已隐藏全部线路，点击上方按钮可恢复显示</div>
         )}
       </div>
+      {fullChartModel && overviewOptions ? (
+        <RangeBrush
+          data={fullChartModel.data}
+          options={overviewOptions}
+          range={viewRange}
+          onChange={setViewRange}
+        />
+      ) : null}
     </InstancePanel>
+  );
+}
+
+function RangeBrush({
+  data,
+  options,
+  range,
+  onChange,
+}: {
+  data: uPlot.AlignedData;
+  options: uPlot.Options;
+  range: ViewRange;
+  onChange: (range: ViewRange) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const times = data[0] as number[];
+  const first = times[0];
+  const last = times[times.length - 1];
+  const span = last - first;
+  const startTime = Number.isFinite(span) && span > 0 ? first + span * range.start : first;
+  const endTime = Number.isFinite(span) && span > 0 ? first + span * range.end : last;
+  const selectionLabel =
+    typeof startTime === "number" && typeof endTime === "number"
+      ? `${formatTooltipTime(startTime, 24)} - ${formatTooltipTime(endTime, 24)}`
+      : "—";
+
+  const startDrag = (
+    mode: "move" | "start" | "end",
+    event: ReactPointerEvent<HTMLElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+
+    const initialX = event.clientX;
+    const initialRange = { ...range };
+    const spanValue = initialRange.end - initialRange.start;
+
+    const applyPointer = (clientX: number) => {
+      const position = clamp((clientX - rect.left) / rect.width, 0, 1);
+      if (mode === "start") {
+        onChange({
+          start: clamp(position, 0, initialRange.end - MIN_VIEW_SPAN),
+          end: initialRange.end,
+        });
+        return;
+      }
+
+      if (mode === "end") {
+        onChange({
+          start: initialRange.start,
+          end: clamp(position, initialRange.start + MIN_VIEW_SPAN, 1),
+        });
+        return;
+      }
+
+      const delta = (clientX - initialX) / rect.width;
+      const nextStart = clamp(initialRange.start + delta, 0, 1 - spanValue);
+      onChange({
+        start: nextStart,
+        end: nextStart + spanValue,
+      });
+    };
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      applyPointer(moveEvent.clientX);
+    };
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
+
+  const jumpToPosition = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    const spanValue = range.end - range.start;
+    const center = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+    const nextStart = clamp(center - spanValue / 2, 0, 1 - spanValue);
+    onChange({ start: nextStart, end: nextStart + spanValue });
+  };
+
+  return (
+    <div className="instance-range-brush-shell">
+      <div className="instance-range-brush-meta">
+        <span>显示范围</span>
+        <strong>{selectionLabel}</strong>
+      </div>
+      <div
+        ref={trackRef}
+        className="instance-range-brush"
+        onPointerDown={jumpToPosition}
+      >
+        <div className="instance-range-brush-chart">
+          <UplotReact options={options} data={data} />
+        </div>
+        <span
+          className="instance-range-brush-mask"
+          style={{ left: 0, width: `${range.start * 100}%` }}
+          aria-hidden
+        />
+        <span
+          className="instance-range-brush-mask"
+          style={{ left: `${range.end * 100}%`, width: `${(1 - range.end) * 100}%` }}
+          aria-hidden
+        />
+        <div
+          className="instance-range-brush-window"
+          style={{
+            left: `${range.start * 100}%`,
+            width: `${(range.end - range.start) * 100}%`,
+          }}
+          onPointerDown={(event) => startDrag("move", event)}
+        >
+          <button
+            type="button"
+            className="instance-range-brush-handle is-start"
+            aria-label="调整开始时间"
+            onPointerDown={(event) => startDrag("start", event)}
+          />
+          <button
+            type="button"
+            className="instance-range-brush-handle is-end"
+            aria-label="调整结束时间"
+            onPointerDown={(event) => startDrag("end", event)}
+          />
+        </div>
+      </div>
+    </div>
   );
 }

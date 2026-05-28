@@ -4,6 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { InstanceDetails } from "@/components/instance/InstanceDetails";
 import { PingChart } from "@/components/instance/PingChart";
 import { LoadChart } from "@/components/instance/LoadChart";
+import { TrafficChart } from "@/components/instance/TrafficChart";
 import {
   buildLoadTimeRangeOptions,
 } from "@/components/instance/chartShared";
@@ -14,7 +15,7 @@ const FIXED_PING_HOURS = 24;
 export function Instance() {
   const { uuid } = useParams<{ uuid: string }>();
   const { data: config } = usePublicConfig();
-  const [chartType, setChartType] = useState<"load" | "ping">("load");
+  const [chartType, setChartType] = useState<"load" | "traffic" | "ping">("load");
   const [loadHours, setLoadHours] = useState(0);
   const chartControlsRef = useRef<HTMLDivElement | null>(null);
 
@@ -73,6 +74,15 @@ export function Instance() {
           >
             负载
           </button>
+          <button
+            type="button"
+            data-active={chartType === "traffic" ? "true" : "false"}
+            onClick={() => {
+              startTransition(() => setChartType("traffic"));
+            }}
+          >
+            流量
+          </button>
           {showPingChart && (
             <button
               type="button"
@@ -85,7 +95,7 @@ export function Instance() {
             </button>
           )}
         </div>
-        {chartType === "load" && (
+        {(chartType === "load" || chartType === "traffic") && (
           <div
             key={`${chartType}-ranges`}
             className="instance-segmented is-scrollable"
@@ -114,6 +124,17 @@ export function Instance() {
           aria-hidden={chartType !== "load"}
         >
           <LoadChart uuid={uuid} hours={loadHours} active={chartType === "load"} />
+        </div>
+        <div
+          className="instance-chart-view"
+          hidden={chartType !== "traffic"}
+          aria-hidden={chartType !== "traffic"}
+        >
+          <TrafficChart
+            uuid={uuid}
+            hours={loadHours}
+            active={chartType === "traffic"}
+          />
         </div>
         <div
           className="instance-chart-view"

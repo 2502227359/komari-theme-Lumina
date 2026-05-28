@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useNode } from "@/hooks/useNode";
 import { formatBytes, formatUptimeDays } from "@/utils/format";
+import { formatTrafficLimitSummary, getTrafficUsage } from "@/utils/traffic";
 import { InstancePanel } from "./InstancePanel";
 
 export function InstanceDetails({
@@ -27,11 +28,12 @@ export function InstanceDetails({
 
   const isOnline = node.online;
   const uptime = formatUptimeDays(node.uptime);
-  const trafficUsed = node.trafficUp + node.trafficDown;
-  const trafficFraction =
-    node.traffic_limit > 0
-      ? Math.max(0, Math.min(1, trafficUsed / node.traffic_limit))
-      : 0;
+  const trafficUsage = getTrafficUsage({
+    up: node.trafficUp,
+    down: node.trafficDown,
+    limit: node.traffic_limit,
+    kind: node.traffic_limit_type,
+  });
   const lastUpdated =
     node.updatedAt > 0
       ? new Intl.DateTimeFormat("zh-CN", {
@@ -92,21 +94,26 @@ export function InstanceDetails({
           />
           <InfoRow label={isOnline ? "最近更新" : "最后上报"} value={lastUpdated} />
           <div className="instance-info-item is-stack">
-            <span className="instance-info-label">总流量</span>
+            <span className="instance-info-label">流量用量</span>
             <div className="instance-info-traffic">
-              <span className="instance-info-value">{`↑ ${formatBytes(node.trafficUp)} · ↓ ${formatBytes(node.trafficDown)}`}</span>
-              {node.traffic_limit > 0 && (
+              <span className="instance-info-value">{formatBytes(trafficUsage.used)}</span>
+              <span className="instance-info-note">
+                {`↑ ${formatBytes(trafficUsage.up)} · ↓ ${formatBytes(trafficUsage.down)}`}
+              </span>
+              {trafficUsage.hasLimit ? (
                 <>
                   <div className="instance-progress-track" aria-hidden>
                     <span
                       className="instance-progress-fill"
-                      style={{ width: `${trafficFraction * 100}%` }}
+                      style={{ width: `${trafficUsage.progressRatio * 100}%` }}
                     />
                   </div>
                   <span className="instance-info-note">
-                    {`${formatBytes(trafficUsed)} / ${formatBytes(node.traffic_limit)}`}
+                    {formatTrafficLimitSummary(trafficUsage)}
                   </span>
                 </>
+              ) : (
+                <span className="instance-info-note">未设置流量限额</span>
               )}
             </div>
           </div>

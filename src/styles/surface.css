@@ -858,6 +858,22 @@
   gap: 16px;
 }
 
+.instance-traffic-summary-grid {
+  margin-bottom: 16px;
+}
+
+.instance-traffic-summary-item {
+  min-height: 112px;
+}
+
+.instance-traffic-summary-item .instance-overview-note {
+  line-height: 1.45;
+}
+
+.instance-traffic-chart-card {
+  padding: 16px;
+}
+
 .instance-chart-card {
   position: relative;
   min-width: 0;
@@ -931,6 +947,112 @@
 
 .instance-uplot-wrap.is-large {
   margin-top: 16px;
+}
+
+.instance-range-brush-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.instance-range-brush-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.instance-range-brush-meta strong {
+  color: var(--text-secondary);
+  font-weight: 650;
+}
+
+.instance-range-brush {
+  position: relative;
+  height: 64px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-elev) 76%, transparent);
+  touch-action: none;
+  user-select: none;
+}
+
+.instance-range-brush-chart {
+  position: absolute;
+  inset: 3px;
+  opacity: 0.86;
+  pointer-events: none;
+}
+
+.instance-range-brush-chart .uplot {
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+}
+
+.instance-range-brush-mask {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--surface) 68%, black 12%);
+  opacity: 0.76;
+  pointer-events: none;
+}
+
+.instance-range-brush-window {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  min-width: 34px;
+  border: 1px solid color-mix(in srgb, var(--progress-cpu) 64%, white 18%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--progress-cpu) 14%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, white 12%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--progress-cpu) 18%, transparent);
+  cursor: grab;
+}
+
+.instance-range-brush-window:active {
+  cursor: grabbing;
+}
+
+.instance-range-brush-handle {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 32px;
+  transform: translateY(-50%);
+  border: 1px solid color-mix(in srgb, var(--progress-cpu) 76%, white 24%);
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, white 34%, var(--surface-elev) 66%) 0%,
+      color-mix(in srgb, var(--progress-cpu) 36%, var(--surface-elev) 64%) 100%
+    );
+  box-shadow: 0 8px 18px -12px rgba(0, 0, 0, 0.6);
+  cursor: ew-resize;
+}
+
+.instance-range-brush-handle::before {
+  content: "";
+  position: absolute;
+  inset: 8px 4px;
+  border-left: 1px solid color-mix(in srgb, var(--progress-cpu) 70%, white 30%);
+  border-right: 1px solid color-mix(in srgb, var(--progress-cpu) 70%, white 30%);
+}
+
+.instance-range-brush-handle.is-start {
+  left: -6px;
+}
+
+.instance-range-brush-handle.is-end {
+  right: -6px;
 }
 
 .instance-chart-tooltip {
