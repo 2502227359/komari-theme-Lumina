@@ -37,7 +37,7 @@ interface ViewRange {
 
 interface PingChartModel {
   data: uPlot.AlignedData;
-  lossCeiling: number | null;
+  lossKeys: Set<string>;
 }
 
 const MIN_VIEW_SPAN = 0.04;
@@ -89,14 +89,74 @@ function sliceChartData(data: uPlot.AlignedData, range: ViewRange): uPlot.Aligne
   return data.map((series) => indices.map((index) => series[index])) as uPlot.AlignedData;
 }
 
-function formatPingChartValue(
-  value: number | null | undefined,
-  drawLoss: boolean,
-  lossCeiling: number | null,
-) {
+function formatPingChartValue(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "—";
-  if (drawLoss && lossCeiling != null && value >= lossCeiling * 0.999) return "丢包";
   return `${value.toFixed(1)} ms`;
+}
+
+function drawLossMarkers({
+  u,
+  chart,
+  tasks,
+  visibleTaskIds,
+  taskColors,
+  lossKeys,
+}: {
+  u: uPlot;
+  chart: uPlot.AlignedData;
+  tasks: Array<{ id: number }>;
+  visibleTaskIds: Set<number>;
+  taskColors: Map<number, string>;
+  lossKeys: Set<string>;
+}) {
+  const times = chart[0] as number[];
+  if (!times.length || lossKeys.size === 0) return;
+
+  const pxRatio = typeof window === "undefined" ? 1 : Math.max(1, window.devicePixelRatio || 1);
+  const ctx = u.ctx;
+  const { left, top, width, height } = u.bbox;
+  const markerTop = top + 5 * pxRatio;
+  const markerBottom = top + 22 * pxRatio;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(left, top, width, height);
+  ctx.clip();
+  ctx.lineCap = "round";
+  ctx.lineWidth = 1.4 * pxRatio;
+
+  for (const time of times) {
+    const losses = tasks.filter(
+      (task) => visibleTaskIds.has(task.id) && lossKeys.has(`${time}:${task.id}`),
+    );
+    if (!losses.length) continue;
+
+    const centerX = u.valToPos(time, "x", true);
+    const startOffset = ((losses.length - 1) * -3.5) * pxRatio;
+
+    losses.forEach((task, index) => {
+      const x = centerX + startOffset + index * 7 * pxRatio;
+      const taskColor = taskColors.get(task.id) ?? "#ff5d73";
+
+      ctx.strokeStyle = "rgba(255, 93, 115, 0.9)";
+      ctx.beginPath();
+      ctx.moveTo(x, markerTop);
+      ctx.lineTo(x, markerBottom);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(255, 93, 115, 0.18)";
+      ctx.beginPath();
+      ctx.arc(x, markerTop, 5 * pxRatio, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = taskColor;
+      ctx.beginPath();
+      ctx.arc(x, markerTop, 2.6 * pxRatio, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  ctx.restore();
 }
 
 export function PingChart({
@@ -230,22 +290,6 @@ export function PingChart({
       defaultInterval: fallbackInterval,
       matchToleranceRatio: 0.25,
     });
-    const positiveValues = chartPoints
-      .flatMap((point) => taskKeys.map((taskKey) => point[taskKey]))
-      .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
-    const maxPositive = positiveValues.length ? Math.max(...positiveValues) : 0;
-    const lossCeiling = drawLoss ? Math.max(100, maxPositive * 1.18) : null;
-    if (drawLoss && lossCeiling != null) {
-      chartPoints = chartPoints.map((point) => {
-        const next = { ...point };
-        for (const taskKey of taskKeys) {
-          if (lossKeys.has(`${point.time}:${taskKey}`)) {
-            next[taskKey] = lossCeiling;
-          }
-        }
-        return next;
-      });
-    }
     const times = chartPoints.map((point) => point.time);
     const perTask = taskKeys.map((taskKey) =>
       chartPoints.map((point) => point[taskKey] ?? null),
@@ -253,9 +297,9 @@ export function PingChart({
 
     return {
       data: [times, ...perTask] as uPlot.AlignedData,
-      lossCeiling,
+      lossKeys,
     };
-  }, [cutPeak, data, drawLoss, taskKeySet, taskKeys, tasks, visibleTasks.length]);
+  }, [cutPeak, data, taskKeySet, taskKeys, tasks, visibleTasks.length]);
 
   const chart = useMemo(
     () => (fullChartModel ? sliceChartData(fullChartModel.data, viewRange) : null),
@@ -268,7 +312,6 @@ export function PingChart({
 
   const yRange = useMemo<[number | null, number | null]>(() => {
     if (!chart) return [null, null];
-    const lossCeiling = fullChartModel?.lossCeiling ?? null;
     const values = tasks
       .flatMap((task, index) =>
         visibleTaskIds.has(task.id)
@@ -279,26 +322,20 @@ export function PingChart({
         (value): value is number =>
           typeof value === "number" &&
           Number.isFinite(value) &&
-          value > 0 &&
-          (!drawLoss || lossCeiling == null || value < lossCeiling * 0.999),
+          value > 0,
       );
     if (values.length === 0) {
-      if (drawLoss && lossCeiling != null) return [Math.max(0, lossCeiling - 100), lossCeiling];
       return [0, 100];
     }
     const min = Math.min(...values);
     const max = Math.max(...values);
-    if (drawLoss && lossCeiling != null) {
-      const lowerPad = Math.max(5, (max - min) * 0.12);
-      return [Math.max(0, min - lowerPad), lossCeiling];
-    }
     if (min === max) {
       const pad = Math.max(5, min * 0.1);
       return [Math.max(0, min - pad), max + pad];
     }
     const pad = Math.max(5, (max - min) * 0.12);
     return [Math.max(0, min - pad), max + pad];
-  }, [chart, drawLoss, fullChartModel?.lossCeiling, tasks, visibleTaskIds]);
+  }, [chart, tasks, visibleTaskIds]);
 
   const options = useMemo<uPlot.Options | null>(() => {
     if (!chart) return null;
@@ -330,13 +367,6 @@ export function PingChart({
           values: (_self, splits) =>
             splits.map((value) => {
               if (value === 0) return "";
-              if (
-                drawLoss &&
-                fullChartModel?.lossCeiling != null &&
-                value >= fullChartModel.lossCeiling * 0.98
-              ) {
-                return "丢包";
-              }
               return `${Math.round(value)} ms`;
             }),
         },
@@ -378,9 +408,10 @@ export function PingChart({
             const rows = visibleTasks.map((task) => {
               const taskIndex = taskIndexById.get(task.id) ?? 0;
               const value = currentChart[taskIndex + 1]?.[idx] as number | null | undefined;
+              const isLoss = drawLoss && (fullChartModel?.lossKeys.has(`${timestamp}:${task.id}`) ?? false);
               return {
                 label: taskLabels.get(task.id) ?? `任务 #${task.id}`,
-                value: formatPingChartValue(value, drawLoss, fullChartModel?.lossCeiling ?? null),
+                value: isLoss ? "丢包" : formatPingChartValue(value),
                 color: taskColors.get(task.id) ?? colorForTask(taskIndex),
               };
             });
@@ -402,9 +433,22 @@ export function PingChart({
             });
           },
         ],
+        draw: [
+          (u) => {
+            if (!drawLoss || !fullChartModel) return;
+            drawLossMarkers({
+              u,
+              chart,
+              tasks,
+              visibleTaskIds,
+              taskColors,
+              lossKeys: fullChartModel.lossKeys,
+            });
+          },
+        ],
       },
     };
-  }, [chart, connectNulls, drawLoss, fullChartModel?.lossCeiling, h, hiddenTasks, isDark, taskColors, taskIndexById, taskLabels, tasks, visibleTasks, w, yRange]);
+  }, [chart, connectNulls, drawLoss, fullChartModel, h, hiddenTasks, isDark, taskColors, taskIndexById, taskLabels, tasks, visibleTaskIds, visibleTasks, w, yRange]);
 
   const overviewOptions = useMemo<uPlot.Options | null>(() => {
     if (!fullChartModel) return null;
@@ -416,10 +460,7 @@ export function PingChart({
       legend: { show: false },
       scales: {
         x: { time: true },
-        y:
-          drawLoss && fullChartModel.lossCeiling != null
-            ? { auto: false, range: yRange }
-            : { auto: true },
+        y: { auto: true },
       },
       axes: [],
       series: [
@@ -434,7 +475,7 @@ export function PingChart({
         })),
       ],
     };
-  }, [drawLoss, fullChartModel, hiddenTasks, taskColors, taskLabels, tasks, w, yRange]);
+  }, [fullChartModel, hiddenTasks, taskColors, taskLabels, tasks, w]);
 
   const taskStats = useMemo(() => {
     const grouped = new Map<number, PingRecord[]>();
@@ -548,7 +589,7 @@ export function PingChart({
           onClick={() => setDrawLoss((value) => !value)}
           aria-pressed={drawLoss}
         >
-          <span className="instance-switch-copy">绘制丢包</span>
+          <span className="instance-switch-copy">丢包标记</span>
           <span className="instance-switch-track" aria-hidden>
             <span className="instance-switch-thumb" />
           </span>

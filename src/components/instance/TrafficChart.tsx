@@ -12,7 +12,7 @@ import {
 import UplotReact from "uplot-react";
 import type uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { ArrowDown, ArrowUp, Gauge, Network } from "lucide-react";
+import { ArrowDown, ArrowUp, Gauge, Info, Network } from "lucide-react";
 import { useLoadRecords } from "@/hooks/useRecords";
 import { useNode } from "@/hooks/useNode";
 import { usePreferences } from "@/hooks/usePreferences";
@@ -363,6 +363,10 @@ export function TrafficChart({
             本段新增 <strong>{formatBytes(periodUsed)}</strong>
           </span>
         </div>
+        <p className="instance-chart-data-note">
+          <Info size={13} />
+          <span>按实时速率估算每个 5 分钟采样点，历史缺口取决于后端记录保留。</span>
+        </p>
       </div>
 
       <div className="instance-overview-grid instance-traffic-summary-grid">

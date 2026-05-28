@@ -7,6 +7,7 @@ export interface TrafficUsage {
   down: number;
   used: number;
   limit: number;
+  remaining: number;
   hasLimit: boolean;
   ratio: number;
   progressRatio: number;
@@ -92,12 +93,14 @@ export function getTrafficUsage({
   const hasLimit = safeLimit > 0;
   const ratio = hasLimit ? used / safeLimit : 0;
   const progressRatio = Math.max(0, Math.min(1, ratio));
+  const remaining = hasLimit ? Math.max(0, safeLimit - used) : 0;
 
   return {
     up: safeUp,
     down: safeDown,
     used,
     limit: safeLimit,
+    remaining,
     hasLimit,
     ratio,
     progressRatio,
@@ -116,5 +119,6 @@ export function formatTrafficPercent(percent: number) {
 
 export function formatTrafficLimitSummary(usage: TrafficUsage) {
   if (!usage.hasLimit) return "未设置流量限额";
-  return `${formatTrafficPercent(usage.percent)} · ${formatBytes(usage.used)} / ${formatBytes(usage.limit)} · ${usage.kindLabel}`;
+  const remaining = usage.remaining > 0 ? `剩余 ${formatBytes(usage.remaining)}` : "已达到限额";
+  return `${formatTrafficPercent(usage.percent)} · ${formatBytes(usage.used)} / ${formatBytes(usage.limit)} · ${remaining} · ${usage.kindLabel}`;
 }
